@@ -1,0 +1,408 @@
+---
+title: "Trabalho Pares 1 [Modelação Estocástica]"
+author: "André Silvestre Nº104532 | Margarida Pereira Nº105877"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+<br><br>
+
+# Exercício 1
+
+Pretende-se que gere 10.000 números pseudo-aleatórios provenientes da distribuição triangular:
+
+(a)	Recorra ao método da aceitação-rejeição.
+
+(b)	Crie uma função de raiz para definir a distribuição triangular. Note que a distribuição triangular é definida por três parâmetros: ***$min$***, o vértice inferior esquerdo do triângulo, ***$max$***, o vértice inferior direito, e ***$mode$***, o vértice superior. A escolha de valores para os parâmetros é discricionária.
+
+(c)	Os resultados devem ser apresentados em `matrix` ou `data.frame`, para além de um *output* gráfico simples que permita visualizar a densidade aproximada dos números simulados.
+
+
+---
+
+## Resolução
+
+Para a resolução deste problema, verificámos que a **distribuição triangular** [[1]](https://pt.wikipedia.org/wiki/Distribui%C3%A7%C3%A3o_triangular) pode ser parametrizada por $a$, $b$ e $c$, que são o vértice inferior esquerdo (também designado por $min$), o vértice inferior direito ($max$) e o vértice superior (centro - $mode$ ) do triângulo, respectivamente.
+
+Por definição, a função densidade de probabilidade (f.d.p.) desta distribuição é dada por:
+
+$$f(x | a, b, c)= \begin{cases}0 & x<a \\ \frac{2(x-a)}{(b-a)(c-a)} & a \leq x<c \\ \frac{2}{b-a} & x=c \\ \frac{2(b-x)}{(b-a)(b-c)} & c<x \leq b \\ 0 & x>b\end{cases}$$
+
+<br><br>
+
+```{r, message=FALSE}
+# a) Método da Aceitação-Rejeição - Considerámos g(x) como a Normal(2, 0.75) 
+
+require(EnvStats)    # Biblioteca com a função da distribuição triangular
+require(ggplot2)     # Gráficos
+require(ggfortify)
+require(ggtext)
+
+fx <- function(x){ 
+  # Programar a f.d.p de f(x) - dist. da qual desejamos simular 
+  # Neste caso, vamos considerar a f.d.p. da dist. triangular com min = 0, mode = 2 e max = 4
+  new_x <- dtri(x, min = 0, max= 4, mode = 2)
+  return(new_x)
+}
+```
+
+<br>
+
+>  A distribuição normal, escolhida para $g(x)$, para satisfazer a condição $c \times g(x) ≥ f(x)$ deverá ser multiplicada pelo máximo de $\frac{f(x)}{g(x)}$
+
+<br>
+
+```{r, message=FALSE}
+# Crie uma sequência de valores para x e calcular os y da f.d.p. de f(x) e g(x)
+x <- seq(0, 4, length.out = 100)
+dt <- dtri(x, min = 0, max = 4, mode = 2)
+dn <- dnorm(x, mean = 2, sd = .75)
+df <- data.frame(x = x, dt = dt, dn = dn)
+
+# Gráfico 1 - f(x) e g(x)
+g1 <- ggplot(df, aes(x = x)) +
+  geom_area(aes(y = dn), fill="#324ab2", color = "#324ab2", linetype = "dashed", alpha = .07) +
+  geom_area(aes(y = dt), fill="#FFD580", color = "#FFD580", alpha = .2) + ylim(0, .6) +
+  labs(title = "Gráfico 1: f(x) and g(x)", y = "f(x) and g(x)") +
+  theme(plot.title = element_markdown(hjust = 0.5, face = "bold"))  
+
+# Gráfico 2 - f(x)/g(x)
+g2 <- ggplot(df, aes(x = x)) + ylim(0, 2) +
+  geom_area(aes(y = dt/dn), fill="skyblue3", color = "skyblue4", alpha = .2) +
+  labs(title = "Gráfico 2: f(x) / g(x)", y = "f(x) / g(x)") +
+  theme(plot.title = element_markdown(hjust = 0.5, face = "bold"))
+
+# Organizar os gráficos lado a lado
+library(gridExtra)
+grid.arrange(g1, g2, ncol = 2)
+```
+
+<br><br>
+
+Como $c$ - *Constante de Rejeição* é definida por:
+
+$$c = sup \; \frac{f(x)}{g(x)}$$
+
+
+Determinámos o valor máximo do quociente entre $f(x)$ e $g(x)$
+
+<br><br>
+
+```{r}
+# Encontrar o valor máximo
+foo <- function(x) dtri(x, min = 0, max = 4, mode = 2)/dnorm(x, mean = 2, sd = .75)
+opt <- optimize(foo, c(0,4), maximum = TRUE)
+c <- opt$objective
+paste("Valor Ótimo de c =",round(c,2))
+```
+
+
+---
+
+
+```{r, message=FALSE}
+
+# ================= Algoritmo do Método da Aceitação-Rejeição =================
+
+set.seed(2023)    # Para permitir reprodutibilidade
+
+k = 0             # Estabelece um contador para o número de observações aceites
+count = 1         # Estabelece um contador para o número de iterações percorridas 
+accept = c()      # Cria um vector vazio onde iremos guardar as simulações, x, aceites
+
+# Percorrer o algoritmo até atingir os 10 000 NPAs gerados
+while(k < 10000){
+  
+  # Gerar x da distribuição g(x) proposta - N(2, 0.75)
+  X <- rnorm(1, mean = 2, sd = .75) 
+  
+  # Gerar um u da distribuição Uniforme(0,1)
+  U_sim <- runif(1, 0, 1)               
+
+  # Calcular o valor de f(x)/cg(x)
+  cg_x <- fx(X)/(c*dnorm(X, mean = 2 , sd = .75))
+
+  # Comparar os dois valores - Aceita-se ou Rejeita-se
+  if(U_sim <= cg_x){
+    
+    # Se o valor proveniente da U(0,1) for inferior a cg(x), então:
+    # Aceitar a simulação acrescentando uma linha ao vector 'accept'
+    accept = rbind(accept, X)
+    k = k + 1
+  }
+  
+  # Caso contrário, descartar a simulação, aumentar o contador em 1, e 
+  #                 seguir para a próxima iteração
+  count = count + 1
+}
+
+paste("Nº de Iterações",count-1)
+paste("Nº de Valores 'y' Aceites",length(accept))
+```
+
+<br>
+
+Foram necessárias **$18 572$** iterações para obter $10000$ observações do modelo $Triangular(min=0, max=4, mode=2)$. Esperavam-se obter $c \times n = 1.850733 \times 10 000 = 18 507$ iterações.
+
+<br>
+
+```{r, message=FALSE}
+#Inspecção visual da amostra gerada 
+ggplot(data.frame(accept), aes(x=accept)) + 
+  
+  # Histograma dos valores gerados
+  geom_histogram(aes (y= after_stat(density)), binwidth=0.19, 
+                 color="black", fill="skyblue3", alpha = 0.3) + 
+  
+  # Adiciona linha da função de distribuição normal teórica
+  geom_line(stat = "function", fun = function(x) dnorm(x = x, mean = 2, sd = .75), 
+            aes(col = "f.d.p. Teórica da Normal"), linetype = "dashed") +
+  
+  # Adiciona linha da função de distribuição triangular teórica
+  geom_line(stat = "function", fun = function(x) dtri(x, min = 0, max= 4, mode = 2),
+            aes(col = "f.d.p. Teórica da Triangular"), linetype = "dashed", ) +
+  
+  # Adiciona as legendas
+  scale_color_manual(name = "", 
+                     values = c("f.d.p. Teórica da Normal" = "black", "f.d.p. Teórica da Triangular" = "#000080"), 
+                     guide = guide_legend(override.aes = list(linetype = "dashed"))) +
+  
+  theme(plot.title = element_markdown(hjust = 0.5, face = "bold")) +
+  ggtitle("Histograma e Função de Densidade") +
+  labs(x = "Valores Aceites", y = "Densidade") 
+```
+
+---
+
+```{r}
+# b) Função Raiz da Distribuição Triangular e análise de casos particulares com paramtrizações escolhidas
+
+dtriangular <- function(x, min, mode, max) {
+  if (x <= min || x >= max) {
+    return(0)
+  } else if (x <= mode) {
+    return(2 * (x - min) / ((max - min) * (mode - min)))
+  } else {
+    return(2 * (max - x) / ((max - min) * (max - mode)))
+  }
+}
+
+# Parâmetros das distribuição triangulares - mantendo o mesmo min e máx
+min_value <- 0 
+max_value <- 4
+
+mode_value1 <- 1
+mode_value2 <- 2
+mode_value3 <- 3
+
+# Vetor de valores de x
+x <- seq(0, 4, .01)
+
+# Valores para as três distribuições
+y1 <- sapply(x, function(xi) dtriangular(xi, min_value, mode_value1, max_value))
+y2 <- sapply(x, function(xi) dtriangular(xi, min_value, mode_value2, max_value))
+y3 <- sapply(x, function(xi) dtriangular(xi, min_value, mode_value3, max_value))
+
+# Gráfico
+df <- data.frame(x = x, y = c(y1, y2, y3), group = c("dt1", "dt2", "dt3"))
+
+# Gráfico
+ggplot() +
+  geom_area(aes(x = x, y = y1), fill = "skyblue", alpha = 0.2, linetype = 2 ) +
+  geom_area(aes(x = x, y = y2), fill = "lightgreen", alpha = 0.2, linetype = 2) +
+  geom_area(aes(x = x, y = y3), fill = "lightcoral", alpha = 0.2, linetype = 2) +
+  
+  geom_line(aes(x = x, y = y1), linetype = "dashed", color = "darkblue") +
+  geom_line(aes(x = x, y = y2), linetype = "dashed", color = "darkgreen") +
+  geom_line(aes(x = x, y = y3), linetype = "dashed", color = "darkred") +
+  
+  labs(title = "Distribuição Triangular com mode's Diferentes",x = "x", y = "y") +
+  theme(legend.position = "top") + ylim(0,.55) + xlim(-0.2, 4.2) + 
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+```
+
+<br>
+
+```{r message=FALSE}
+# c) Resultados
+
+# Comparação pontualmente dos percentis empíricos com os percentis teóricos
+p <- seq(.1, .9, .1)
+Qhat <- quantile(accept, p)                    # Quantis da Amostra Gerada
+Q <-   qtri(p, min = 0, max = 4, mode = 2)     # Quantis Teóricos da dist. Triangular
+round(rbind(Qhat, Q), 3)
+
+# accept # Valores gerados
+```
+
+
+<br><br><br>
+
+---
+
+# Exercício 2
+
+Pretende-se que realize um estudo comparativo de dois estimadores para o coeficiente de assimetria de distribuições de probabilidade. Considere os estimadores $s_1$ e $s_2$ para a assimetria de uma população qualquer:
+
+
+
+$$ s_1=\frac{Q_3+Q_1-2 Q_2}{Q_3-Q_1}$$
+
+$$s_2=\frac{(\mu-\nu)}{E(|X-\nu|)}$$
+
+
+em que, na Equação 1, $Q_i$ representa o quartil respectivo e, na Equação 2, $\mu$ corresponde à média e $ν$ corresponde à mediana.
+
+
+(a)	Gere, utilizando o gerador base do R para a distribuição *t-student*  (`rt()`), e com `set.seed(2023)`:
+
+  i. $100$ amostras de dimensão $n = 20$
+  ii. $100$ amostras de dimensão $n = 100$
+  iii. $100$ amostras de dimensão $n = 1000$
+
+(b)	Obtenha, para cada amostra gerada e para cada estimador, a assimetria amostral (estimativa) correspondente.
+
+(c)	Recorrendo ao cálculo do erro-padrão e do erro quadrático médio, conclua pela sua preferência por um dos esti- madores e comente o seu comportamento, em função da dimensão das amostras obtidas. Apresente os resultados num `data.frame`.
+
+
+---
+
+## Resolução 
+
+
+```{r}
+# a) Geração das 100 Amostras (n=20, n=100, n=1000 | df=20 (Escolha discricionária))
+
+# Definir a semente para reprodutibilidade
+set.seed(2023)
+
+# Gerar as Amostras - matriz n x 100
+sample_20 <- replicate(100, rt(20, df = 20))
+sample_100 <- replicate(100, rt(100, df = 20))
+sample_1000 <- replicate(100, rt(1000, df = 20))
+```
+
+
+```{r}
+# b) Assimetria Amostral (estimativa) para cada amostra
+
+# Função para calcular s1 - Estimativa da Assimetria Amostral 1
+s1_estimator <- function(X) {
+  Q1 <- quantile(X, 0.25)
+  Q2 <- median(X)
+  Q3 <- quantile(X, 0.75)
+  return ((Q3 + Q1 - 2 * Q2) / (Q3 - Q1))
+}
+
+# Função para calcular s2 - Estimativa da Assimetria Amostral 2
+s2_estimator <- function(X) {
+  mediana <- median(X)
+  media <- mean(X)
+  return ((media - mediana) / mean(abs(X - mediana)))
+}
+
+# Calcular s1 e s2 para cada amostra de 20 observações
+s1_values_20 <- apply(sample_20,  
+                      MARGIN = 2,         # MARGIN = 2 indica que a função será aplicada nas colunas
+                      FUN = s1_estimator) # FUN = função que queremos aplicar      
+s2_values_20 <- apply(sample_20, 2, s2_estimator)                      
+
+# Calcular s1 e s2 para cada amostra de 100 observações
+s1_values_100 <- apply(sample_100, 2, s1_estimator)
+s2_values_100 <- apply(sample_100, 2, s2_estimator)
+
+# Calcular s1 e s2 para cada amostra de 1000 observações
+s1_values_1000 <- apply(sample_1000, 2, s1_estimator)
+s2_values_1000 <- apply(sample_1000, 2, s2_estimator)
+```
+
+<br>
+
+Dado que a distribuição gerada é a *t-student* e, na população, esta distribuição é simétrica, era de esperar que $skewness  = 0$, pelo que iremos considerar este valor como `true value` no cálculo do **MSE**.
+
+<br>
+
+```{r, message=FALSE}
+# c) Cálculo do Erro-Padrão e do Erro Quadrático Médio (MSE) e Conclusões 
+
+# Calcular Erro-Padrão e Erro Quadrático Médio para s1
+se_s1_20 <- sd(s1_values_20) / sqrt(100)
+se_s1_100 <- sd(s1_values_100) / sqrt(100)
+se_s1_1000 <- sd(s1_values_1000) / sqrt(100)
+
+mse_s1_20 <- mean((s1_values_20 - 0)^2)
+mse_s1_100 <- mean((s1_values_100 - 0)^2)
+mse_s1_1000 <- mean((s1_values_1000 - 0)^2)
+
+# Calcular erro-padrão e erro quadrático médio para s2
+se_s2_20 <- sd(s2_values_20) / sqrt(100)
+se_s2_100 <- sd(s2_values_100) / sqrt(100)
+se_s2_1000 <- sd(s2_values_1000) / sqrt(100)
+
+mse_s2_20 <- mean((s2_values_20 - 0)^2)
+mse_s2_100 <- mean((s2_values_100 - 0)^2)
+mse_s2_1000 <- mean((s2_values_1000 - 0)^2)
+
+# Criar um data.frame com os resultados
+results_df <- data.frame(
+  Sample_Size = rep(c(20, 100, 1000), 2),
+  Estimador = c("","s1","","","s2",""),
+  SE = round(c(se_s1_20, se_s1_100, se_s1_1000, se_s2_20, se_s2_100, se_s2_1000),4),
+  MSE = round(c(mse_s1_20, mse_s1_100, mse_s1_1000, mse_s2_20, mse_s2_100, mse_s2_1000),4)
+)
+```
+
+```{r message=FALSE, warning=FALSE}
+require(flextable)
+require(magrittr)
+
+# Tabela com os resultados
+ftable_1 <- flextable(head(results_df))
+
+ftable_1 <- bg(ftable_1, bg = "#006a4e", part = "header")
+ftable_1 <- color(ftable_1, color = "white", part = "header")
+ftable_1 <- bold(ftable_1, bold = TRUE, part="header")
+ftable_1 <- set_header_labels(ftable_1,Sample_Size = 'n', Estimador = 'Estimador', SE = 'SE', MSE = 'MSE')
+ftable_1 <- autofit(ftable_1)
+ftable_1 %>% 
+  mk_par(j = "Estimador",value = as_paragraph(as_chunk(Estimador, props = fp_text_default(bold = TRUE)))) %>% 
+  hline(i = 3, part = "body") %>%
+  hline(i = 6)
+```
+
+#### Boxplot para mostrar a variação dos estimadores para diferentes $n$ amostras
+
+```{r}
+# Combinar os dados num data.frame
+s1_combined <- c(s1_values_20, s1_values_100, s1_values_1000)
+s2_combined <- c(s2_values_20, s2_values_100, s2_values_1000)
+sample_sizes_combined <- rep(c("n = 20", "n = 100", "n = 1000"), each = 100)
+estimators_combined <- rep(c("s1", "s2"), each = 300)
+
+s1_s2 <- data.frame(
+  Value = c(s1_combined, s2_combined),
+  Sample_Size = factor(sample_sizes_combined, levels = c("n = 20", "n = 100", "n = 1000")),
+  Estimator = estimators_combined
+)
+
+# Boxplot
+ggplot(s1_s2, aes(x = Estimator , y = Value, fill = Estimator, color = as.factor(Sample_Size))) +
+  geom_boxplot(alpha = .9, color = "#100c08") +
+  facet_wrap(.~Sample_Size) +
+  scale_fill_manual(values = c("#ff7518", "#29ab87")) + 
+  labs(title = "Boxplot dos Estimadores para Diferentes Tamanhos de Amostra", x = "", y = "Estimativas") +
+  theme_bw() +
+  theme(legend.position = "bottom") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold")) +
+  guides(fill = guide_legend(title = "Estimadores"))
+```
+
+
+---
+
+

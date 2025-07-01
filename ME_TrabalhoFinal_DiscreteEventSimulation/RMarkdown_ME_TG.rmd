@@ -1,0 +1,1443 @@
+---
+title: "TG | Modelação Estocástica"
+subtitle: "Simulação da Gestão de Contactos"
+author: 
+- André Silvestre Nº104532
+- Eliane Gabriel Nº103303
+- Maria João Lourenço Nº104716
+- Margarida Pereira Nº105877
+- Umeima Mahomed Nº 99239
+date: 10 de novembro de 2023
+output: html_document
+---
+
+```{css my-header-colors, echo = FALSE}
+body {
+  color: #333; 
+}  
+    
+#header {
+  background-color: #0070C0;
+  background-image: linear-gradient(120deg, #002060, #0070C0);
+  width: 100%;
+  margin: 0;
+  padding: 1.5rem 2rem;
+  
+  @media screen and (min-width: 64em) {
+    #header {
+      padding: 5rem 6rem; } }
+  @media screen and (min-width: 42em) and (max-width: 64em) {
+    #header {
+      padding: 3rem 4rem; } }
+  @media screen and (max-width: 42em) {
+    #header {
+      padding: 2rem 1rem; } }
+
+}
+
+span.hljs-keyword { color: #003F86;}
+span.hljs-string {color: #aa0000;}
+
+h1.title {
+  color: #fff;
+  font-size: 50px;
+  font-weight: bold;
+  text-align: center;
+  margin-bottom: -10px;
+}
+
+h3.subtitle{
+  color: #fff;
+  font-weight: bold;
+  text-align: center;
+  margin-bottom: 25px;
+}
+
+h4.author {
+  color: #fff;
+  font-size: 14px;
+  font-family: "Arial", Times, sans-serif;
+  text-align: center;
+  margin-top:-8px;
+  font-weight: normal;
+}
+
+h4.date { 
+  color: #fff;
+  font-size: 15px;
+  font-family: "Arial", Times, serif;
+  text-align: center;
+  margin-top:20px;
+  margin-bottom:20px;
+  font-weight: normal;
+}
+
+body {
+  text-align: justify;
+}
+
+p{font-size: 16px;}
+
+
+ol > li::marker {
+  font-weight: bold;
+  font-size: 17px;
+}
+
+h1 { color: #003C81;font-weight: bold; }
+
+h2 { color: #0070C0;font-weight: bold; }
+
+h3 { color: #2A9DEE;font-weight: bold; }
+
+h4 { color: #2A9DEE;font-weight: bold; }
+```
+
+```{js, echo = FALSE}
+title=document.getElementById('header');
+title.innerHTML = '<img src="https://gci.iscte-iul.pt/2022/identidade/files/brand_v2/iscte/rgb/pt/iscte_description_horizontal/negative/rgb_iscte_pt_horizontal_negative.png" alt="ISCTE" style="display:block;margin: 0 auto;width:25%">' + title.innerHTML
+
+containerElement = document.querySelector('body > .container-fluid.main-container');
+containerElement.classList.remove('main-container')
+```
+
+```{=html}
+<div class="container-fluid main-container">
+```
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+<br>
+
+- **Ano Letivo:** 2023/24
+- **Docentes:** Catarina Marques e Pedro Serrasqueiro
+
+<br>
+
+# **Gestão dos Contactos Pré-Operatórios**
+## **Serviço de Cirurgia de um Hospital**
+
+O **objectivo** deste estudo é optimizar a gestão dos contactos pré-operatórios, minimizando o número de administrativos afectos a este processo. Para tal, pretende-se que simule a gestão dos contactos de forma a analisar o impacto da ocorrência de diferentes cenários na eficiência do processo de gestão de contactos (tempo total do processo e total de chamadas perdidas). 
+
+<br>
+
+#### Características do processo de gestão de contactos – **Situação Actual**:
+
+1.	Existem apenas **2 administrativos** no serviço, que começam a trabalhar às $8h$ e terminam às $18h$ de cada dia útil.
+
+2.	O tempo entre chegadas de chamadas ou mensagens tem distribuição  $Exp (\frac{1}{\lambda})$, sendo a taxa de contacto ($\lambda$) de $40$ chamadas ou mensagens por hora, o equivalente a $\frac{40}{60}=\frac{2}{3}$ por minuto.
+
+3.	Os pacientes entram em contacto por telefone com probabilidade $0.85$ ou por via eletrónica com probabilidade $0.15$. 
+
+4. Relativamente ao agendamento de consultas, 
+ - $30\%$ das vezes não é agendada uma consulta;
+ - $70\%$ das vezes é agendada uma consulta, das quais:
+   * $\frac{60\%}{70\%}$ das vezes a consulta ocorre por telefone e;
+   * $\frac{10\%}{70\%}$ é presencial.
+
+5. O tempo necessário que os administrativos necessitam para fazer as perguntas de triagem segue distribuição $N(\mu=4, \sigma=1)$, enquanto o tempo de tomada de decisão sobre qual consulta marcar, assim como, o tempo de agendamento da consulta (se necessário) seguem ambos distribuição $N(\mu=1, \sigma= 0.25^{(1)})$.
+
+6. O sistema telefónico instalado desliga uma chamada após $5 \;minutos$ de espera para ser atendida. Nesta situação, a chamada é perdida e o paciente terá de entrar em contacto de novo.
+
+$^{(1)}$ Note-se que estes tempos são sempre maiores ou iguais a zero pelo que deve ser usada a distribuição normal truncada a valores não negativos.
+
+<br>
+
+---
+
+<br>
+
+```{r message=FALSE, warning=FALSE}
+# Remover todos os objetos da área de trabalho.
+rm(list=ls(all=TRUE))
+
+# Bibliotecas utilizadas
+library(simmer)
+library(simmer.plot)
+library(reshape2)     # Para transformar o df resultante de 'get_mon_attributes()'
+library(flextable)    # Tabela
+library(truncnorm)    # Truncar os valores da Normal
+require(officer)
+
+# Definir a semente para reprodutibilidade dos resultados
+set.seed(2023)
+```
+
+<br>
+
+# **Processo Atual**
+
+```{r}
+########################### Métricas a Analisar ################################
+metricas_func = function(gestao_contactos) {
+  
+  contactos = get_mon_arrivals(gestao_contactos, ongoing=TRUE)  %>% 
+    transform(waiting_time = end_time - start_time - activity_time)
+  
+  # Uniformizar dos os casos em que não houve atendimento
+  contactos$activity_time = ifelse(contactos$activity_time == 0, NA,contactos$activity_time)
+
+  # dcast | Fonte: https://www.rdocumentation.org/packages/reshape2/versions/1.4.4/topics/cast
+  contactos_atributos <- dcast(gestao_contactos %>% get_mon_attributes(), 
+                               replication + name ~ key, 
+                               value.var = "value")
+  
+  # Juntar todas as informações da simulação num só data.frame
+  contactos_ <- merge(contactos, contactos_atributos, by = c("name", "replication"), all = TRUE)
+  
+  # Número de Pacientes (Chamadas + Mensagens)
+  pacientes_total = nrow(contactos_)/max(contactos_$replication)
+  
+  # Número de Pacientes Atendidos (Chamadas + Mensagens)
+  pacientes_total_atendidos = sum(!is.na(contactos_$activity_time ))/max(contactos_$replication)
+  
+  # Número de Pacientes Não Atendidos (Chamadas + Mensagens)
+  pacientes_total_nao_atendidos = sum(is.na(contactos_$activity_time ))/max(contactos_$replication)
+  
+  # Número de chamadas telefónicas atendidas
+  chamadas_atendidas = sum(contactos_$Chamada == 1 & 
+                            !is.na(contactos_$activity_time), na.rm = TRUE)/max(contactos_$replication)
+  
+  # Número de chamadas perdidas
+  chamadas_perdidas = sum(contactos_$Chamada == 1 & 
+                            is.na(contactos_$activity_time), na.rm = TRUE)/max(contactos_$replication)
+  
+  # Número de mensagens respondidas e não respondidas
+  mensagens_respondidas = sum(contactos_$Mensagem == 1 & 
+                            !is.na(contactos_$activity_time ), na.rm = TRUE)/max(contactos_$replication)
+  
+  mensagens_nao_respondidas = sum(contactos_$Mensagem == 1 & 
+                            is.na(contactos_$activity_time ), na.rm = TRUE)/max(contactos_$replication)
+  
+  # Tempo de espera médio
+  tempos_medios <- numeric(max(contactos_$replication)) 
+  for (i in 1:max(contactos_$replication)){
+    replica <- subset(contactos_, replication == i)$waiting_time
+    tempos_medios[i] <- mean(replica, na.rm = T)
+  }
+  tempo_espera_medio = mean(tempos_medios)
+  sd_tempo_espera_medio = ifelse(length(tempos_medios) > 1, sd(tempos_medios), sd(replica, na.rm = T))
+  
+  # Tempo de serviço médio
+  tempos_servico <- numeric(max(contactos_$replication)) 
+  for (i in 1:max(contactos_$replication)){
+    replica <- subset(contactos_, replication == i)$activity_time
+    tempos_servico[i] <- mean(replica, na.rm = T)
+  }
+  tempo_servico_medio = mean(tempos_servico)
+  sd_tempo_servico_medio = ifelse(max(contactos_$replication) > 1, sd(tempos_servico), sd(replica, na.rm = T))
+  
+  # Tempo total do processo (tempo médio de atendimento)
+  tempos_total <- numeric(max(contactos_$replication)) 
+  for (i in 1:max(contactos_$replication)){
+    replica <- subset(contactos_, replication == i)[c('start_time','end_time')]
+    tempos_total[i] <- mean(replica$end_time - replica$start_time, na.rm = T)
+  }
+  tempo_total_processo = mean(tempos_total)
+  sd_tempo_total_processo = ifelse(length(tempos_total) > 1, 
+                                   sd(tempos_total), sd((replica$end_time - replica$start_time), na.rm = T))
+  
+  # Tempo de espera médio [Chamadas]
+  tempos_medios_chamadas <- numeric(max(contactos_$replication)) 
+  for (i in 1:max(contactos_$replication)){
+    replica <- subset(contactos_, replication == i & Chamada == 1)$waiting_time
+    tempos_medios_chamadas[i] <- mean(replica, na.rm = T)
+  }
+  tempo_espera_medio_chamadas = mean(tempos_medios_chamadas)
+  sd_tempo_espera_medio_chamadas = ifelse(length(tempos_medios_chamadas) > 1, 
+                                          sd(tempos_medios_chamadas), sd(replica, na.rm = T))
+  
+  # Tempo de espera médio [Mensagens]
+  tempos_medios_mensagens <- numeric(max(contactos_$replication)) 
+  for (i in 1:max(contactos_$replication)){
+    replica <- subset(contactos_, replication == i & Mensagem == 1)$waiting_time
+    tempos_medios_mensagens[i] <- mean(replica, na.rm = T)
+  }
+  tempo_espera_medio_mensagens = mean(tempos_medios_mensagens)
+  sd_tempo_espera_medio_mensagens = ifelse(length(tempos_medios_mensagens) > 1, 
+                                           sd(tempos_medios_mensagens), sd(replica, na.rm = T))
+  
+  # Número de pacientes com consulta presencial
+  pacientes_consulta_presencial = sum(!is.na(contactos_$CAP))/max(contactos_$replication)
+  
+  # Número de pacientes com consulta telefónica
+  pacientes_consulta_telefonica = sum(!is.na(contactos_$CAT))/max(contactos_$replication)
+  
+  # Número de pacientes sem necessidade de consulta
+  pacientes_sem_necessidade = sum(!is.na(contactos_$CNA))/max(contactos_$replication)
+  
+  # Crie um data frame com as métricas
+  nomes_metricas <- c("Total de Pacientes", "Total de Pacientes Atendidos", "Pacientes Totais Não Atendidos",
+                      "Total de Chamadas","Chamadas Telefónicas Atendidas","Chamadas Perdidas", 
+                      "Total de Mensagens", "Mensagens Respondidas", "Mensagens Não Respondidas", 
+                      "Pacientes Consulta Presencial", "Pacientes Consulta Telefónica", 
+                      "Pacientes Sem Necessidade", "Tempo Médio dos Pacientes Atendidos (minutos)",
+                      "Tempo de Espera Médio", "Tempo de Espera Médio [Chamadas]", "Tempo de Espera Médio [Mensagens]",
+                      "Tempo de Serviço Médio", "Tempo Total de Processo")
+
+  output <- data.frame(
+      Métrica = nomes_metricas,
+      Valor = c(
+          round(pacientes_total), 
+          round(pacientes_total_atendidos), 
+          round(pacientes_total_nao_atendidos), 
+          round(chamadas_atendidas + chamadas_perdidas), 
+          round(chamadas_atendidas), 
+          round(chamadas_perdidas), 
+          round(mensagens_respondidas + mensagens_nao_respondidas), 
+          round(mensagens_respondidas), 
+          round(mensagens_nao_respondidas), 
+          round(pacientes_consulta_presencial), 
+          round(pacientes_consulta_telefonica), 
+          round(pacientes_sem_necessidade), "Média",
+          formatC(round(tempo_espera_medio, 2),2,format="f"),
+          formatC(round(tempo_espera_medio_chamadas, 2),2,format="f"),
+          formatC(round(tempo_espera_medio_mensagens, 2),2,format="f"),
+          formatC(round(tempo_servico_medio, 2),2,format="f"), 
+          formatC(round(tempo_total_processo, 2),2,format="f")),
+      Percentagem = c("", 
+          formatC(round(pacientes_total_atendidos / pacientes_total * 100, 1),1,format="f"), 
+          formatC(round(pacientes_total_nao_atendidos / pacientes_total * 100, 1),1,format="f"), "",
+          formatC(round(chamadas_atendidas/(chamadas_atendidas + chamadas_perdidas) * 100, 1),1,format="f"), 
+          formatC(round(chamadas_perdidas/(chamadas_atendidas + chamadas_perdidas) * 100, 1),1,format="f"),"",
+          formatC(round(mensagens_respondidas/(mensagens_respondidas + mensagens_nao_respondidas) * 100, 1),1,format="f"),
+          formatC(round(mensagens_nao_respondidas/(mensagens_respondidas + mensagens_nao_respondidas) * 100, 1),1,format="f"), 
+          formatC(round(pacientes_consulta_presencial / pacientes_total_atendidos * 100, 1),1,format="f"), 
+          formatC(round(pacientes_consulta_telefonica / pacientes_total_atendidos * 100, 1),1,format="f"), 
+          formatC(round(pacientes_sem_necessidade / pacientes_total_atendidos * 100, 1),1,format="f"),"DP", 
+          formatC(round(sd_tempo_espera_medio, 1),1,format="f"),
+          formatC(round(sd_tempo_espera_medio_chamadas, 1),1,format="f"),
+          formatC(round(sd_tempo_espera_medio_mensagens, 1),1,format="f"),
+          formatC(round(sd_tempo_servico_medio, 1),1,format="f"), 
+          formatC(round(sd_tempo_total_processo, 1),1,format="f"))
+  )
+  colnames(output) <- c("Métrica", "Valor", "%")
+
+  return(output)
+}
+```
+
+
+
+```{r}
+################################ Exercício 1 ###################################
+
+# Realizar a simulação do processo de gestão de contactos no período das 8h às 18h para uma semana (5 dias úteis).
+
+# 1 | Analise o impacto do processo actual. Use 1 e 50 réplicas. Identifique possíveis ações de melhoria.
+
+# Definir a taxa de contacto
+taxa_contacto <- 40 / 60          # Converter a taxa para contactos por minuto
+
+# Definir as distribuições do tempo de serviço
+# Nota: Para cumprir com a atenção referida no enunciado de que os tempos são sempre >= 0, de modo a
+#       usar a distribuição normal truncada a valores negativos, optámos por a biblioteca 'truncnorm'
+# Documentação consultada: https://cran.r-project.org/web/packages/truncnorm/truncnorm.pdf
+tempo_triagem <- function() rtruncnorm(1, a=0, b=Inf, mean = 4, sd = 1)
+tempo_decisao <- function() rtruncnorm(1, a=0, b=Inf, mean = 1, sd = 0.25)
+tempo_agendamento <- function() rtruncnorm(1, a=0, b=Inf, mean = 1, sd = 0.25)
+```
+
+<br>
+
+## Trajetórias dos Contactos
+
+Os pacientes podem contactar o hospital de duas formas: por **Chamada Telefónica** ou via **Mensagem na *App***, assim foram definidas 2 trajetórias possíveis. 
+
+Na 1ª trajetória, quando um paciente faz uma Chamada Telefónica, o sistema:
+
+1.	Identifica o contacto como uma **`'Chamada'`** e atribui um administrativo.
+2.	Verifica se a chamada é perdida após 5 minutos de espera.
+3.	Se o administrativo ficar disponível antes da chamada ser perdida, o abandono é cancelado.
+4.	Realiza a triagem do paciente.
+5.	Tomada de decisão sobre a necessidade de consulta.
+6.	Se necessário, agendamento da consulta, por telefone ou presencial.
+
+
+Já na 2ª trajetória, se o paciente enviar uma Mensagem na App, o sistema:
+
+1.	Identifica o contacto como uma **`'Mensagem'`** e atribui um administrativo.
+2.	Realiza a triagem do paciente.
+3.	Tomada de decisão sobre a necessidade de consulta.
+4.	Se necessário, agendamento da consulta, por telefone ou presencial.
+
+É de notar que ambas as trajetórias incorporam todos os processos através de bifurcações utilizando a função **`branch()`** tendo por base as distribuições e probabilidades dadas.
+
+<br>
+
+```{r, fig.align = 'center', warning=FALSE}
+# Trajetória de um paciente que entra em contacto através de uma chamada telefónica
+contacto_pacientes_tel <- trajectory('chamada') %>%
+
+  # Identifica o contacto como sendo uma 'Chamada'
+  set_attribute("Chamada", 1) %>%
+  
+  # O sistema telefónico instalado desliga uma chamada após 5 minutos de espera para ser atendida.
+  renege_in(t = 5, out = trajectory() 
+                            # %>% log_("Chamada perdida após 5 minutos")
+            ) %>%
+
+  seize("administrativo") %>%
+    # log_('Chamada | Paciente atribuido a 1 administrativo') %>%
+  
+  # Se o administrativo ficar livre antes da chamada do paciente ser perdida, o abandono deve ser cancelado
+  renege_abort() %>%
+  
+  # Triagem
+  timeout(tempo_triagem) %>%
+    # log_('Triagem concluída') %>%
+    
+  # Tomada de decisão
+  timeout(tempo_decisao) %>%
+    # log_('Decisão tomada') %>%
+    
+  # Agendamento de consulta (caso haja necessidade)
+  branch(
+    function() (runif(1) > 0.3) + 1, continue = c(FALSE,FALSE),
+    
+    # Trajetória caso a consulta não seja agendada (30%)
+    trajectory() %>%
+      # log_("Consulta não agendada") %>% 
+    set_attribute("CNA", 1) %>%            # CNA - Consulta Não Agendada
+    
+      # Libertação do administrativo
+      release('administrativo', 1),
+        # %>% log_('Administrativo fica livre'), 
+    
+    # Trajetória caso a consulta seja agendada (70%)
+    trajectory() %>%
+        # log_("Consulta a agendar") %>%
+      
+      branch(
+        function() (runif(1) > 0.6/0.7) + 1, continue = c(FALSE,FALSE),
+        
+        # Caso em que a consulta é por telefone
+        trajectory() %>%
+            # log_('Consulta por telefone') %>%
+          timeout(tempo_agendamento) %>%
+            # log_('Consulta por telefone agendada') %>%
+          set_attribute("CAT", 1) %>%         # CAT - Consulta Agendada por Telefone
+          
+          # Libertação do administrativo
+          release('administrativo', 1),
+            #  %>% log_('Administrativo fica livre')
+        
+        # Caso em que a consulta é presencial
+        trajectory() %>%
+            # log_('Consulta presencial') %>%
+          timeout(tempo_agendamento) %>%
+            # log_('Consulta presencial agendada') %>% 
+          set_attribute("CAP", 1) %>%         # CAP - Consulta Agendada Presencial
+          
+          # Libertação do administrativo
+          release('administrativo', 1)
+            # %>% log_('Administrativo fica livre'),
+      )
+  )
+
+# Fluxograma da trajetória de um paciente que entra em contacto através de uma chamada telefónica 
+plot(contacto_pacientes_tel)
+```
+
+
+<center>**Figura 1 -** Fluxograma da trajetória de um paciente que entra em contacto através de uma **Chamada Telefónica**. </center>
+
+<br>
+
+```{r, fig.align = 'center', warning=FALSE}
+# Trajetória de um paciente que entra em contacto através de uma mensagem na app
+contacto_pacientes_sms <- trajectory('mensagem') %>%
+  
+  # Identifica o contacto como sendo uma 'Mensagem'
+  set_attribute("Mensagem", 1) %>%
+  
+  seize("administrativo") %>%
+    # log_('Mensagem | Paciente atribuido a 1 administrativo') %>%
+  
+  # Triagem
+  timeout(tempo_triagem) %>%
+    # log_('Triagem concluída') %>%
+    
+  # Tomada de decisão
+  timeout(tempo_decisao) %>%
+    # log_('Decisão tomada') %>%
+  
+  # Agendamento de consulta (caso haja necessidade)
+  branch(
+    function() (runif(1) > 0.3) + 1, continue = c(FALSE,FALSE),
+    
+    # Trajetória caso a consulta não seja agendada (30%)
+    trajectory() %>%
+        # log_("Consulta não agendada") %>% 
+      set_attribute("CNA", 1) %>%            # CNA - Consulta Não Agendada
+      
+      # Libertação do administrativo
+      release('administrativo', 1),
+        # %>% log_('Administrativo fica livre'), 
+    
+    # Trajetória caso a consulta seja agendada (70%)
+    trajectory() %>%
+
+      branch(
+        function() (runif(1) > 0.6/0.7) + 1, continue = c(FALSE,FALSE),
+        
+        # Caso em que a consulta é por telefone
+        trajectory() %>%
+            # log_('Consulta por telefone a agendar') %>%
+          timeout(tempo_agendamento) %>%
+            # log_('Consulta por telefone agendada') %>% 
+          set_attribute("CAT", 1) %>%         # CAT - Consulta Agendada por Telefone
+          
+          # Libertação do administrativo
+          release('administrativo', 1),
+            # %>% log_('Administrativo fica livre')
+        
+        # Caso em que a consulta é presencial
+        trajectory() %>%
+            # log_('Consulta presencial a agendar') %>%
+          timeout(tempo_agendamento) %>%
+            # log_('Consulta presencial agendada') %>%
+          set_attribute("CAP", 1) %>%         # CAP - Consulta Agendada Presencial
+          
+          # Libertação do administrativo
+          release('administrativo', 1)
+            # %>% log_('Administrativo fica livre'),
+        )
+  )
+
+# Fluxograma da trajetória de um paciente que entra em contacto através de uma mensagem na app
+plot(contacto_pacientes_sms)
+```
+
+
+<center>**Figura 2 -** Fluxograma da trajetória de um paciente que entra em contacto através de uma **Mensagem na *app***. </center>
+
+<br><br>
+
+## **Situação Atual | 1 Réplica**
+
+O estudo do serviço de cirurgia do hospital na situação atual envolveu a simulação singular do seu funcionamento num período de $5$ dias úteis, das $8h$ às $18h$, com dois administrativos disponíveis. Neste cenário, os pacientes entraram em contacto através de chamadas telefónicas ($85\%$)  mensagens ($15\%$) segundo a distribuição $Exp(λ = 40)$.
+
+Para perceber o funcionamento do algoritmo implementado e para melhor compreender os atuais problemas e evolução do sistema, utilizaram-se os **`log_`** que foram posteriormente comentados no código. 
+
+<br>
+
+```{r}
+set.seed(2023)
+
+administrativos_schedule_1 <- schedule(timetable = c(8*60,18*60), values =  c(2, 0), period = 24*60)
+
+# Trajetória para escolher o tipo de contacto com base nas probabilidades
+tipo_contacto <- trajectory("Tipo de Contacto") %>%
+                 branch(function() (runif(1) > 0.85) + 1, continue = c(FALSE, FALSE),
+                        # Trajetória caso o contacto tenha sido por telefone
+                        contacto_pacientes_tel,
+                        
+                        # Trajetória caso o contacto tenha sido por via eletrónica
+                        contacto_pacientes_sms)
+
+# Criar um ambiente de simulação, replicando o sistema apenas 1 vez da Situação Atual (SA)
+gestao_contactos_SA_1 <-  simmer("Gestao dos Contactos") %>% 
+  add_resource("administrativo", administrativos_schedule_1)
+
+  # Gerar Pacientes no Período das 8h às 18h em 5 dias 
+  # Utilizámos o ciclo 'for' para repetir a simulação dos pacientes nos 5 dias
+  # Fonte: https://stackoverflow.com/questions/51450197/how-to-write-loop-of-generators-in-simmer-environment
+  for(j in 1:5) gestao_contactos_SA_1 %>%
+  add_generator(paste("Paciente",j), 
+                trajectory = tipo_contacto, 
+                from_to(start_time = ((j-1)*24*60)+8*60,
+                        stop_time = ((j-1)*24*60)+18*60, 
+                        dist = function() c(0,rexp(40*10, rate = taxa_contacto),-1)
+                        ),
+                mon = 2 # Se o simulador deve monitorar as chegadas geradas ou não :
+                        #   0 = sem monitoramento, 
+                        #   1 = monitoramento de chegada simples, 
+                        #   2 = nível 1 + monitoramento de atributo de chegada
+                )
+
+  gestao_contactos_SA_1 %>% run(until = 5 * 24 * 60)  # Minutos de Simulação =  5 dias x 24 horas/dia x 60 minutos 
+```
+
+```{r}
+# Métricas para a análise da eficiência
+df <- metricas_func(gestao_contactos_SA_1)
+ftable_1 <- flextable(df)
+
+ftable_1 <- bg(ftable_1, bg = "#002060", part = "header")
+ftable_1 <- color(ftable_1, color = "white", part = "header")
+ftable_1 <- bold(ftable_1, bold = TRUE, part="header")
+ftable_1 <- autofit(ftable_1)
+ftable_1 %>% 
+   bold(part = "body", i= 1, j = 1) %>%
+   hline(i = 3, part = "body", border = fp_border(color = "#002060", style = "dashed", width = 1)) %>% 
+   bold(part = "body", i= 4, j = 1) %>%
+   hline(i = 6, part = "body", border = fp_border(color = "#002060", style = "dashed", width = 1)) %>% 
+   bold(part = "body", i= 7, j = 1) %>%
+   hline(i = 9, part = "body", border = fp_border(color = "#002060", style = "dashed", width = 1)) %>% 
+   bold(part = "body", i= 13, j = 1:3) %>%
+   hline(i = 12, part = "body", border = fp_border(color = "#002060", style = "solid", width = 1))
+```
+
+<center>**Tabela 1 -** Variáveis de análise da eficiência da 1ª Simulação - **Situação Atual** | 1 Réplica. </center>
+
+<br>
+
+Através da análise dos resultados (**Tabela 1**), numa simulação de $1961$ pacientes, revelou-se que $48\%$ dos pacientes não foram atendidos devido ao tempo de espera da chamada, sendo que nenhuma mensagem ficou por ser respondida.
+
+<br>
+
+```{r, fig.show="hold", message=FALSE, warning=FALSE, out.width="50%"}
+# Representações gráficas da simulação
+gestao_contactos_SA_1 %>% get_mon_resources() %>% plot(metric = "utilization")
+gestao_contactos_SA_1 %>% get_mon_resources() %>% plot(metric = "usage", steps=T)
+```
+
+
+<center>**Figura 3 e 4 -** Gráficos que representa o quanto um recurso (os 2 administrativos) é utilizado (esquerda); quando os recursos (administrativos) estão ocupados, bem como quantas pacientes estão na fila a cada momento (direita) na **Situação Atual** em 1 réplica. </center>
+
+<br>
+
+- A linha <span style="color:green">verde</span> representa o número de administrativos ocupados; em todo o intervalo de simulação, ambos os administrativos estão ocupados.
+- A linha <span style="color:red">vermelho</span> representa o	número de pacientes na fila que estão à espera para serem atendidas.
+- A linha <span style="color:blue">azul</span> é o número total de pacientes no sistema: os que estão na fila mais os que estão a ser atendidos.
+
+<br>
+
+
+Relativamente aos recursos, os dois administrativos estão a ser utilizados a cerca de $96\%$, pelo que estes podem causar algum estrangulamento ao sistema (**Figura 3**). 
+
+Analisando os tempos médios dos pacientes atendidos, em minutos, o tempo total do processo foi de $8.2$, com um tempo de espera, em média, de $5.3$ e de serviço de $5.7$. 
+
+Através da **Figura 4**, é evidente que os administrativos estão a ser utilizados em todo o período de simulação e que existem sempre pacientes a serem atendidos ou à espera de o serem. Os casos assinalados a azul que transpassam de um dia laboral para outro são referentes a mensagens que ficaram pendentes, contudo, estas foram resolvidas no dia seguinte, estando no final do tempo de simulação $100\%$ das mensagens respondidas.
+
+<br>
+
+
+---
+
+
+```{r, fig.show="hold", message=FALSE, warning=FALSE, out.width="50%"}
+# De forma a tratar primeiro o 'waiting_time' antes de o visualizar graficamente, optámos por fazer o gráfico de raiz, utilizando o código da biblioteca na mesma 
+# Fonte: https://github.com/r-simmer/simmer.plot/blob/51aa1cf442b4923ab95ad3822408c139898731b5/R/plot.arrivals.R
+gestao_contactos_SA_1_Plot <- gestao_contactos_SA_1 %>% 
+  get_mon_arrivals() %>% 
+  dplyr::mutate(waiting_time = end_time - start_time - activity_time) %>% 
+  # Como as mensagens podem não terminar num só dia, nos casos em que já estava no final do turno das 18h, retira-se as horas de espera
+  # entre as 18h e as 8h do dia seguinte (equivale a 14x60 = 840 minutos) para melhor visualização dado serem poucos casos
+  transform(waiting_time = ifelse(waiting_time > 840, waiting_time - 840, waiting_time))
+
+ggplot(gestao_contactos_SA_1_Plot) +
+    aes(x = gestao_contactos_SA_1_Plot$end_time, y = gestao_contactos_SA_1_Plot$waiting_time) +
+    geom_line(aes(group = gestao_contactos_SA_1_Plot$replication), 
+              alpha = 1.0 / (log(max(gestao_contactos_SA_1_Plot$replication)) + 1)) +
+    stat_smooth() +
+    xlab("simulation time") +
+    ylab("waiting time") +
+    ggtitle("Waiting time evolution") +
+    expand_limits(y = 0)
+
+gestao_contactos_SA_1 %>% get_mon_arrivals() %>% plot(metric = "activity_time")
+```
+<center>**Figura 5 e 6 -** Gráficos que representam quanto tempo os pacientes estão na fila e o tempo do seu atendimento - **Situação Atual** em 1 réplica. </center>
+
+<br>
+
+As **Figuras 5** e **6** revelam que os pacientes aguardam, em média, cerca de $5$ minutos, podendo chegar a $10$ minutos em alguns casos, enquanto o tempo de atividade geralmente se estende por $5$ minutos ou mais.
+
+<br>
+
+---
+
+## **Situação Atual | 50 Réplicas**
+
+```{r}
+set.seed(2023)
+
+# Criar um ambiente de simulação, replicando o sistema 50 vezes da Situação Atual
+administrativos_schedule_1 <- schedule(timetable = c(8*60,18*60), values =  c(2, 0), period = 24*60)
+
+# Criar um ambiente de simulação, replicando o sistema 50 vezes da Situação Atual
+gestao_contactos_SA_50 <-
+  lapply(1:50, function(i){
+    gestao_contactos_SA <- simmer(paste("Gestao dos Contactos 50rep", i)) %>%
+    add_resource("administrativo", administrativos_schedule_1)
+
+    for(j in 1:5) gestao_contactos_SA %>%
+    add_generator(paste("Paciente",i,j),
+                  trajectory = tipo_contacto,
+                  from_to(start_time = ((j-1)*24*60)+8*60,
+                          stop_time = ((j-1)*24*60)+18*60,
+                          dist = function() c(0,rexp(40*10, rate = taxa_contacto),-1)),
+                  mon = 2)
+
+    gestao_contactos_SA %>% run(until = 5 * 24 * 60)  %>% invisible
+})
+```
+
+```{r}
+# Métricas para a análise da eficiência
+df <- as.data.frame(metricas_func(gestao_contactos_SA_50))
+ftable_2 <- flextable(df)
+
+ftable_2 <- bg(ftable_2, bg = "#002060", part = "header")
+ftable_2 <- color(ftable_2, color = "white", part = "header")
+ftable_2 <- bold(ftable_2, bold = TRUE, part="header")
+ftable_2 <- autofit(ftable_2)
+ftable_2 %>% 
+   bold(part = "body", i= 1, j = 1) %>%
+   hline(i = 3, part = "body", border = fp_border(color = "#002060", style = "dashed", width = 1)) %>% 
+   bold(part = "body", i= 4, j = 1) %>%
+   hline(i = 6, part = "body", border = fp_border(color = "#002060", style = "dashed", width = 1)) %>% 
+   bold(part = "body", i= 7, j = 1) %>%
+   hline(i = 9, part = "body", border = fp_border(color = "#002060", style = "dashed", width = 1)) %>% 
+   bold(part = "body", i= 13, j = 1:3) %>%
+   hline(i = 12, part = "body", border = fp_border(color = "#002060", style = "solid", width = 1))
+```
+
+<center>**Tabela 2 -** Variáveis de análise da eficiência da 2ª Simulação - **Situação Atual** | 50 Réplicas. </center>
+
+<br>
+
+Replicando o mesmo cenário $50$ vezes, adquirimos uma visão mais robusta e ampla do processo de gestão de contactos pré-operatórios, contudo os resultados das métricas, sendo a média das 50 réplicas, pouco oscilaram face aos anteriores. (**Tabela 2**) 
+
+<br>
+
+```{r, fig.show="hold", message=FALSE, warning=FALSE, out.width="50%"}
+gestao_contactos_SA_50 %>% get_mon_resources() %>% plot(metric = "utilization")
+gestao_contactos_SA_50 %>% get_mon_resources() %>% plot(metric = "usage", steps=T)
+
+
+# De forma a tratar primeiro o 'waiting_time' antes de o visualizar graficamente, optámos por fazer o gráfico de raiz, utilizando o código da biblioteca na mesma 
+# Fonte: https://github.com/r-simmer/simmer.plot/blob/51aa1cf442b4923ab95ad3822408c139898731b5/R/plot.arrivals.R
+gestao_contactos_SA_50_Plot <- gestao_contactos_SA_50 %>% 
+  get_mon_arrivals() %>% 
+  dplyr::mutate(waiting_time = end_time - start_time - activity_time) %>%
+  transform(waiting_time = ifelse(waiting_time > 840, waiting_time - 840, waiting_time))
+
+ggplot(gestao_contactos_SA_50_Plot) +
+    aes(x = gestao_contactos_SA_50_Plot$end_time, y = gestao_contactos_SA_50_Plot$waiting_time) +
+    geom_line(aes(group = gestao_contactos_SA_50_Plot$replication), alpha = 1.0 / (log(max(gestao_contactos_SA_50_Plot$replication)) + 1)) +
+    stat_smooth() +
+    xlab("simulation time") +
+    ylab("waiting time") +
+    ggtitle("Waiting time evolution") +
+    expand_limits(y = 0)
+
+gestao_contactos_SA_50 %>% get_mon_arrivals() %>% plot(metric = "activity_time")
+```
+
+<center>**Figura 7 e 8 -** Gráficos que representam o quão ocupados os administrativos estavam nas diferentes simulações e o tempo de espera - **Situação Atual** em 50 réplicas. </center>
+
+<br>
+
+Analisando o gráfico referentes ao quão ocupados os administrativos estavam nas diferentes simulações e o tempo de espera (**Figura 7** e **8**) observa-se que de uma forma geral o sistema comporta-se sempre de igual forma.
+
+Sendo que cerca de $50\%$ das chamadas efetuadas pelos pacientes não são respondidas atempadamente (dentro dos $5$ minutos aceitáveis), foram aplicadas possibilidades de melhoria do processo.   
+
+<br>
+
+---
+
+<br><br><br>
+
+# **Situação de Melhoria**
+
+### **Possibilidades de Melhoria do Processo de Gestão de Contactos**
+
+As melhorias aplicadas em ambos cenários que seguem, envolvem a definição das distribuições do tempo entre contactos estando apresentadas na **Tabela 3** e afetação de mais administrativos em diferentes períodos evidenciadas na **Tabela 4**. 
+
+<br>
+
+<center>**Tabela 3 -** Número de contactos por período. </center>
+<br>
+
+|   Período   | Número de Contactos |
+|:-----------:|:-------------------:|
+|  8h – 10h   |       120           |
+| 10h – 16h   |       240           |
+| 16h – 18h   |       40            |
+
+<br>
+<br>
+
+<center>**Tabela 4 -** Número de contactos por período. </center>
+<br>
+
+|      Período      | Número de Administrativos |
+|:-----------------:|:-------------------------:|
+|      8h – 9h      |            1              |
+|     9h – 9h30     |            2              |
+|     9h30 – 12h    |            4              |
+|    12h – 15h30    |            3              |
+|   15h30 – 18h     |            1              |
+
+<br>
+<br>
+
+## **Situação de Melhoria (Cenário `a)`) | 1 Réplica**
+
+
+Ademais, no **cenário A** foi acrescida uma particularidade: a prioridade das chamadas sobre as mensagens sendo que um administrativo poderá interromper a análise de uma mensagem para atender uma chamada. Para tal, quando é decidido no sistema o tipo do contacto do paciente, foi acrescentado na trajetória do contacto por chamada a função **`set_priorization`** com os parâmetros: **`priority=1, preemptive=2, restart=FALSE`**, e foi acrescentado no **`add_resource`** o **`preemptive = TRUE`**.
+
+<br>
+
+```{r}
+################################ Exercício 2 ###################################
+# ------------------------------- Cenário a) -----------------------------------
+set.seed(2023)
+
+# Trajetória para escolher o tipo de contacto com base nas probabilidades, considerando a prioridade das chamadas e a sua urgência
+tipo_contacto_prioritario_a <-   trajectory("Tipo de Contacto") %>%
+  branch(function() (runif(1) > 0.85) + 1, continue = c(FALSE, FALSE),
+         
+          # Trajetória caso o contacto tenha sido por telefone
+          trajectory() %>% 
+            # values = c(priority, preemptible, restart)
+            # Fonte: https://r-simmer.org/reference/set_prioritization
+            set_prioritization(function() c(priority=1, preemptive=2, restart=FALSE)) %>%
+            join(contacto_pacientes_tel),
+          
+          # Trajetória caso o contacto tenha sido por via eletrónica
+          contacto_pacientes_sms)
+
+
+# Definir o agendamento dos administrativos
+administrativos_schedule <- schedule(timetable = c(8*60, 9*60, 9.5*60, 12*60, 15.5*60, 18*60), 
+                                     values =  c(1, 2, 4, 3, 1, 0), 
+                                     period = 24*60)
+
+# Criar um ambiente de simulação, replicando o sistema apenas 1 vez
+gestao_contactos_SM_1a <-  simmer("Gestao dos Contactos | Melhoria 1 a)") %>% 
+  
+  add_resource("administrativo", administrativos_schedule, preemptive = TRUE)
+  
+  # Período das 8h às 10h
+  for(jM in 1:5) gestao_contactos_SM_1a %>%
+    add_generator(paste("Paciente_M",jM), trajectory = tipo_contacto_prioritario_a,
+                from_to(start_time = ((jM-1)*24*60)+8*60,
+                        stop_time = ((jM-1)*24*60)+10*60,
+                        dist = function() {c(0, rexp(120, rate = 60/60), -1)},
+                        ),
+                mon = 2)
+
+  # Período das 10h às 16h
+  for(jT in 1:5) gestao_contactos_SM_1a %>%
+    add_generator(paste("Paciente_T",jT), trajectory = tipo_contacto_prioritario_a,
+                from_to(start_time = ((jT-1)*24*60)+10*60,
+                        stop_time = ((jT-1)*24*60)+16*60,
+                        dist = function() {c(0, rexp(240, rate = 40/60), -1)},
+                        ),
+                mon = 2)
+
+  # Período das 16h às 18h
+  for(jN in 1:5) gestao_contactos_SM_1a %>%
+    add_generator(paste("Paciente_N",jN), trajectory = tipo_contacto_prioritario_a,
+                from_to(start_time = ((jN-1)*24*60)+16*60,
+                        stop_time = ((jN-1)*24*60)+18*60,
+                        dist = function() {c(0, rexp(40, rate = 20/60), -1)},
+                        ),
+                mon = 2)
+  
+  gestao_contactos_SM_1a %>% run(until = 5*24*60) %>% invisible
+```
+
+
+```{r}
+# Métricas para a análise da eficiência (Exercício 2 | Cenário a))
+df <- as.data.frame(metricas_func(gestao_contactos_SM_1a))
+ftable_3 <- flextable(df)
+
+ftable_3 <- bg(ftable_3, bg = "#002060", part = "header")
+ftable_3 <- color(ftable_3, color = "white", part = "header")
+ftable_3 <- bold(ftable_3, bold = TRUE, part="header")
+ftable_3 <- autofit(ftable_3)
+ftable_3 %>% 
+   bold(part = "body", i= 1, j = 1) %>%
+   hline(i = 3, part = "body", border = fp_border(color = "#002060", style = "dashed", width = 1)) %>% 
+   bold(part = "body", i= 4, j = 1) %>%
+   hline(i = 6, part = "body", border = fp_border(color = "#002060", style = "dashed", width = 1)) %>% 
+   bold(part = "body", i= 7, j = 1) %>%
+   hline(i = 9, part = "body", border = fp_border(color = "#002060", style = "dashed", width = 1)) %>% 
+   bold(part = "body", i= 13, j = 1:3) %>%
+   hline(i = 12, part = "body", border = fp_border(color = "#002060", style = "solid", width = 1))
+```
+
+<center>**Tabela 5 -** Variáveis de análise da eficiência da 3ª Simulação - **Situação de Melhoria** - Cenário **`a)`** | 1 Réplica. </center>
+
+<br>
+
+Desta forma, obteve-se algumas melhorias no que toca às métricas de análise de eficiência do sistema, passando de $48\%$ para $33\%$ de pacientes não atendidos. Em contrapartida, em média, o tempo de espera sofreu um grande aumento, sendo agora aproximadamente $58$ min., já o tempo de serviço mantém-se. Além disso, as mensagens não são respondidas na sua totalidade ficando cerca de $33\%$ por responder, o que não é significativo sendo que as mensagens apenas representam $15\%$ dos contactos. (**Tabela 5**) 
+
+<br>
+
+
+```{r, fig.show="hold", message=FALSE, warning=FALSE, out.width="50%"}
+gestao_contactos_SM_1a %>% get_mon_resources() %>% plot(metric = "utilization")
+gestao_contactos_SM_1a %>% get_mon_resources() %>% plot(metric = "usage", steps=T)
+```
+
+<center>**Figura 9 e 10 -** Gráficos que representa o quanto os recursos são utilizado (esquerda); quando os recursos (administrativos) estão ocupados, bem como quantas pacientes estão na fila a cada momento (direita) na **Situação de Melhoria - Cenário `a)`** em 1 réplica. </center>
+
+<br>
+
+Ao analisar a **Figura 9** e **10**, pode-se averiguar que os administrativos estão a trabalhar durante todo o tempo e, ao verificar o funcionamento do sistema, este reflete uma grande quantia de mensagens por responder de um dia para o outro.  
+
+<br>
+
+---
+
+## **Situação de Melhoria (Cenário `a)`) | 50 Réplicas**
+
+
+```{r}
+# Criar um ambiente de simulação, replicando o sistema 50 vezes das Possibibilidades de Melhoria | Cenário a) em 50 réplicas
+set.seed(2023)
+
+gestao_contactos_SM_50a <-
+  lapply(1:50, function(i){
+    gestao_contactos_SM_a <- simmer(paste("Gestao dos Contactos a) 50rep", i)) %>%
+    add_resource("administrativo", administrativos_schedule, preemptive = TRUE)
+  
+  # Período das 8h às 10h
+  for(jM in 1:5) gestao_contactos_SM_a %>%
+    add_generator(paste("Paciente_M",jM), trajectory = tipo_contacto_prioritario_a,
+                from_to(start_time = ((jM-1)*24*60)+8*60,
+                        stop_time = ((jM-1)*24*60)+10*60,
+                        dist = function() {c(0, rexp(120, rate = 60/60), -1)},
+                        ),
+                mon = 2)
+
+  # Período das 10h às 16h
+  for(jT in 1:5) gestao_contactos_SM_a %>%
+    add_generator(paste("Paciente_T",jT), trajectory = tipo_contacto_prioritario_a,
+                from_to(start_time = ((jT-1)*24*60)+10*60,
+                        stop_time = ((jT-1)*24*60)+16*60,
+                        dist = function() {c(0, rexp(240, rate = 40/60), -1)},
+                        ),
+                mon = 2)
+
+  # Período das 16h às 18h
+  for(jN in 1:5) gestao_contactos_SM_a %>%
+    add_generator(paste("Paciente_N",jN), trajectory = tipo_contacto_prioritario_a,
+                from_to(start_time = ((jN-1)*24*60)+16*60,
+                        stop_time = ((jN-1)*24*60)+18*60,
+                        dist = function() {c(0, rexp(40, rate = 20/60), -1)},
+                        ),
+                mon = 2)
+  
+  gestao_contactos_SM_a %>% run(until = 5*24*60) %>% invisible
+})
+```
+
+
+
+```{r}
+# Métricas para a análise da eficiência (Exercício 2 | Cenário b) 50 réplicas)
+df <- as.data.frame(metricas_func(gestao_contactos_SM_50a))
+ftable_4 <- flextable(df)
+
+ftable_4 <- bg(ftable_4, bg = "#002060", part = "header")
+ftable_4 <- color(ftable_4, color = "white", part = "header")
+ftable_4 <- bold(ftable_4, bold = TRUE, part="header")
+ftable_4 <- autofit(ftable_4)
+ftable_4 %>% 
+   bold(part = "body", i= 1, j = 1) %>%
+   hline(i = 3, part = "body", border = fp_border(color = "#002060", style = "dashed", width = 1)) %>% 
+   bold(part = "body", i= 4, j = 1) %>%
+   hline(i = 6, part = "body", border = fp_border(color = "#002060", style = "dashed", width = 1)) %>% 
+   bold(part = "body", i= 7, j = 1) %>%
+   hline(i = 9, part = "body", border = fp_border(color = "#002060", style = "dashed", width = 1)) %>% 
+   bold(part = "body", i= 13, j = 1:3) %>%
+   hline(i = 12, part = "body", border = fp_border(color = "#002060", style = "solid", width = 1)) 
+```
+
+<center>**Tabela 6 -** Variáveis de análise da eficiência da 4ª Simulação - **Situação de Melhoria** - Cenário **`a)`** | 50 Réplicas. </center>
+
+<br>
+
+Uma vez mais, ao replicar o mesmo cenário $50$ vezes, os resultados das métricas, não apresentaram oscilações notáveis face aos anteriores, à exceção do tempo do de espera médio que aumentou cerca de $10$ minutos. (Tabela 6) 
+
+Em relação à ocupação dos administrativos, ao comparar com as $50$ réplicas da situação atual, é notável a diminuição da mesma. Já sobre o tempo de espera de um para outro não é comparável sendo que a mensuração do mesmo foi feita de forma diferente, uma vez que neste caso, no **cenário A**, definiu-se um número de administrativos para cada intervalo de tempo. 
+
+<br>
+
+
+```{r, fig.show="hold", message=FALSE, warning=FALSE, out.width="50%"}
+gestao_contactos_SM_50a %>% get_mon_resources() %>% plot(metric = "utilization")
+gestao_contactos_SM_50a %>% get_mon_resources() %>% plot(metric = "usage", steps=T)
+gestao_contactos_SM_50a %>% get_mon_arrivals() %>% plot(metric = "waiting_time")
+gestao_contactos_SM_50a %>% get_mon_arrivals() %>% plot(metric = "activity_time")
+```
+<center>**Figura 11 e 12 -** Gráficos que representa o quanto os recursos são utilizado (esquerda); quando os recursos (administrativos) estão ocupados, bem como quantas pacientes estão na fila a cada momento (direita) na **Situação de Melhoria - Cenário `a)`** em 50 réplica. </center>
+
+<center>**Figura 13 e 14 -** Gráficos que representam quanto tempo os pacientes estão na fila e o tempo do seu atendimento na **Situação de Melhoria - Cenário `a)`** em 50 réplicas. </center>
+
+<br>
+
+---
+
+<br><br><br>
+
+## **Situação de Melhoria (Cenário `b)`) | 1 Réplica**
+
+O **cenário B** difere do **cenário A** na medida em que os administrativos atendem as chamadas telefónicas sem interromper a análise das mensagens. Para isso, substituiu-se o **`set_priorization`** com o parâmetro **`preemptive=1`**, e acrescentou-se no **`add_resource`** o **`preemptive = FALSE`**, para que seja dada prioridade à mensagem.
+
+<br>
+
+```{r}
+# ------------------------------- Cenário b) -----------------------------------
+set.seed(2023)
+
+# Trajetória para escolher o tipo de contacto com base nas probabilidades, considerando apenas a prioridade das chamadas
+tipo_contacto_prioritario_b <-   trajectory("Tipo de Contacto") %>%
+  branch(function() (runif(1) > 0.85) + 1, continue = c(FALSE, FALSE),
+         
+          # Trajetória caso o contacto tenha sido por telefone
+          trajectory() %>% 
+            # values = c(priority, preemptible, restart)
+            set_prioritization(function() c(priority=1, preemptive=1, restart=FALSE)) %>%
+            join(contacto_pacientes_tel),
+          
+          # Trajetória caso o contacto tenha sido por via eletrónica
+          contacto_pacientes_sms)
+
+
+# Definir o agendamento dos administrativos
+administrativos_schedule <- schedule(timetable = c(8*60, 9*60, 9.5*60, 12*60, 15.5*60, 18*60), 
+                                     values =  c(1, 2, 4, 3, 1, 0), 
+                                     period = 24*60)
+
+# Criar um ambiente de simulação, replicando o sistema na Situação de Melhoria (SM) apenas 1 vez
+gestao_contactos_SM_1b <-  simmer("Gestao dos Contactos | Melhoria 1 b)") %>% 
+  
+  add_resource("administrativo", administrativos_schedule, preemptive = FALSE)
+  
+  # Período das 8h às 10h
+  for(jM in 1:5) gestao_contactos_SM_1b %>%
+    add_generator(paste("Paciente_M",jM), trajectory = tipo_contacto_prioritario_b,
+                from_to(start_time = ((jM-1)*24*60)+8*60,
+                        stop_time = ((jM-1)*24*60)+10*60,
+                        dist = function() {c(0, rexp(120, rate = 60/60), -1)},
+                        ),
+                mon = 2)
+
+  # Período das 10h às 16h
+  for(jT in 1:5) gestao_contactos_SM_1b %>%
+    add_generator(paste("Paciente_T",jT), trajectory = tipo_contacto_prioritario_b,
+                from_to(start_time = ((jT-1)*24*60)+10*60,
+                        stop_time = ((jT-1)*24*60)+16*60,
+                        dist = function() {c(0, rexp(240, rate = 40/60), -1)},
+                        ),
+                mon = 2)
+
+  # Período das 16h às 18h
+  for(jN in 1:5) gestao_contactos_SM_1b %>%
+    add_generator(paste("Paciente_N",jN), trajectory = tipo_contacto_prioritario_b,
+                from_to(start_time = ((jN-1)*24*60)+16*60,
+                        stop_time = ((jN-1)*24*60)+18*60,
+                        dist = function() {c(0, rexp(40, rate = 20/60), -1)},
+                        ),
+                mon = 2)
+  
+  gestao_contactos_SM_1b %>% run(until = 5*24*60) %>% invisible
+```
+
+
+
+```{r}
+# Métricas para a análise da eficiência (Exercício 2 | Cenário b) )
+df <- as.data.frame(metricas_func(gestao_contactos_SM_1b))
+ftable_5 <- flextable(df)
+
+ftable_5 <- bg(ftable_5, bg = "#002060", part = "header")
+ftable_5 <- color(ftable_5, color = "white", part = "header")
+ftable_5 <- bold(ftable_5, bold = TRUE, part="header")
+ftable_5 <- autofit(ftable_5)
+ftable_5 %>% 
+   bold(part = "body", i= 1, j = 1) %>%
+   hline(i = 3, part = "body", border = fp_border(color = "#002060", style = "dashed", width = 1)) %>% 
+   bold(part = "body", i= 4, j = 1) %>%
+   hline(i = 6, part = "body", border = fp_border(color = "#002060", style = "dashed", width = 1)) %>% 
+   bold(part = "body", i= 7, j = 1) %>%
+   hline(i = 9, part = "body", border = fp_border(color = "#002060", style = "dashed", width = 1)) %>% 
+   bold(part = "body", i= 13, j = 1:3) %>%
+   hline(i = 12, part = "body", border = fp_border(color = "#002060", style = "solid", width = 1))
+```
+
+<center>**Tabela 7 -** Variáveis de análise da eficiência da 5ª Simulação na **Situação de Melhoria - Cenário `b)`** em 1 réplica. </center>
+
+<br>
+
+Relativamente aos resultados obtidos, os pacientes não atendidos diminuíram ligeiramente, ficando nos $32.8\%$. Por sua vez, face ao **cenário A**, o número de chamadas telefónicas perdidas aumentou ligeiramente ficando em $36.1\%$, mas o número de mensagens não respondidas diminui substancialmente ficando nos $12.6\%$. O tempo de espera médio, também reduziu passando a ser de $32.7$ min, o tempo de serviço médio manteve-se constante (**Tabela 7**). 
+
+<br>
+
+```{r, fig.show="hold", message=FALSE, warning=FALSE, out.width="50%"}
+gestao_contactos_SM_1b %>% get_mon_resources() %>% plot(metric = "utilization")
+gestao_contactos_SM_1b %>% get_mon_resources() %>% plot(metric = "usage", steps=T)
+```
+
+<center>**Figura 15 e 16 -** Gráficos que representa o quanto os recursos são utilizado (esquerda); quando os recursos (administrativos) estão ocupados, bem como quantas pacientes estão na fila a cada momento (direita) na **Situação de Melhoria - Cenário `b)`** em 1 Réplica. </center>
+
+<br>
+
+Os administrativos são utilizados a $100\%$, pelo que podem representar estrangulamentos no sistema, ou seja, se nas mesmas condições tivéssemos mais administrativos podíamos melhorar os resultados obtidos (**Figura 13**). Na **Figura 14**, vemos que os administrativos estão sempre a ser utilizados e que o número de pacientes à espera de serem atendidos tende a aumentar ao longo do tempo. 
+
+<br>
+
+---
+
+<br>
+
+## **Situação de Melhoria (Cenário `b)`) | 50 Réplicas**
+
+```{r}
+# Criar um ambiente de simulação, replicando o sistema 50 vezes das Possibibilidades de Melhoria | Cenário b) em 50 réplicas
+set.seed(2023)
+
+gestao_contactos_SM_50b <-
+  lapply(1:50, function(i){
+    gestao_contactos_SM_b <- simmer(paste("Gestao dos Contactos 50rep", i)) %>%
+    add_resource("administrativo", administrativos_schedule, preemptive = FALSE)
+  
+  # Período das 8h às 10h
+  for(jM in 1:5) gestao_contactos_SM_b %>%
+    add_generator(paste("Paciente_M",jM), trajectory = tipo_contacto_prioritario_b,
+                from_to(start_time = ((jM-1)*24*60)+8*60,
+                        stop_time = ((jM-1)*24*60)+10*60,
+                        dist = function() {c(0, rexp(120, rate = 60/60), -1)},
+                        ),
+                mon = 2)
+
+  # Período das 10h às 16h
+  for(jT in 1:5) gestao_contactos_SM_b %>%
+    add_generator(paste("Paciente_T",jT), trajectory = tipo_contacto_prioritario_b,
+                from_to(start_time = ((jT-1)*24*60)+10*60,
+                        stop_time = ((jT-1)*24*60)+16*60,
+                        dist = function() {c(0, rexp(240, rate = 40/60), -1)},
+                        ),
+                mon = 2)
+
+  # Período das 16h às 18h
+  for(jN in 1:5) gestao_contactos_SM_b %>%
+    add_generator(paste("Paciente_N",jN), trajectory = tipo_contacto_prioritario_b,
+                from_to(start_time = ((jN-1)*24*60)+16*60,
+                        stop_time = ((jN-1)*24*60)+18*60,
+                        dist = function() {c(0, rexp(40, rate = 20/60), -1)},
+                        ),
+                mon = 2)
+  
+  gestao_contactos_SM_b %>% run(until = 5*24*60) %>% invisible
+})
+```
+
+
+
+```{r}
+# Métricas para a análise da eficiência (Exercício 2 | Cenário b) 50 réplicas)
+df <- as.data.frame(metricas_func(gestao_contactos_SM_50b))
+ftable_6 <- flextable(df)
+
+ftable_6 <- bg(ftable_6, bg = "#002060", part = "header")
+ftable_6 <- color(ftable_6, color = "white", part = "header")
+ftable_6 <- bold(ftable_6, bold = TRUE, part="header")
+ftable_6 <- autofit(ftable_6)
+ftable_6 %>% 
+   bold(part = "body", i= 1, j = 1) %>%
+   hline(i = 3, part = "body", border = fp_border(color = "#002060", style = "dashed", width = 1)) %>% 
+   bold(part = "body", i= 4, j = 1) %>%
+   hline(i = 6, part = "body", border = fp_border(color = "#002060", style = "dashed", width = 1)) %>% 
+   bold(part = "body", i= 7, j = 1) %>%
+   hline(i = 9, part = "body", border = fp_border(color = "#002060", style = "dashed", width = 1)) %>% 
+   bold(part = "body", i= 13, j = 1:3) %>%
+   hline(i = 12, part = "body", border = fp_border(color = "#002060", style = "solid", width = 1))
+```
+
+<center>**Tabela 8 -** Variáveis de análise da eficiência da 6ª Simulação - **Situação de Melhoria - Cenário `b)`** | 50 Réplicas. </center>
+
+<br>
+
+Ao replicarmos o **cenário B** $50$ vezes, os resultados obtidos mantiveram-se sensivelmente os mesmos, exceto o número de mensagens não respondidas que aumentou cerca de $2\%$ e o tempo de espera médio que aumentou em $6$ min. (**Tabela 8**).
+
+<br>
+---
+
+<br>
+
+```{r, fig.show="hold", message=FALSE, warning=FALSE, out.width="50%"}
+gestao_contactos_SM_50b %>% get_mon_resources() %>% plot(metric = "utilization")
+gestao_contactos_SM_50b %>% get_mon_resources() %>% plot(metric = "usage", steps=T)
+gestao_contactos_SM_50b %>% get_mon_arrivals() %>% plot(metric = "waiting_time")
+gestao_contactos_SM_50b %>% get_mon_arrivals() %>% plot(metric = "activity_time")
+```
+
+<center>**Figura 17 e 18 -** Gráficos que representa o quanto os recursos são utilizado (esquerda); quando os recursos (administrativos) estão ocupados, bem como quantas pacientes estão na fila a cada momento (direita) na **Situação de Melhoria - Cenário `b)`** em 1 Réplica. </center>
+
+<center>**Figura 19 e 20 -** Gráficos que representam quanto tempo os pacientes estão na fila e o tempo do seu atendimento na **Situação de Melhoria - Cenário `b)`** em 50 réplicas. </center>
+
+<br>
+
+O tempo de espera tem tendência crescente, sendo que no início do último dia existe um aumento substancial do seu valor (**Figura 15**). O tempo de atendimento tende a não sofrer alterações ao longo da simulação (**Figura 16**). 
+
+<br>
+
+---
+
+<br><br>
+
+## **Situação de Melhoria [`EXTRA`]**
+
+> De modo a tentar melhor o panorama geral da gestão de contactos, testámos diferentes valores nos administrativos, verificando o seu impacto e potencial contribuição na otimização da eficiência do funcionamento do sistema.
+
+Para que esta alocação fosse possível, a diretora dos serviços administrativos poderia escolher uma das opções que se seguem: 
+
+1. Inserir um sistema de rotatividade de turnos de forma a poder ter mais administrativos por período de tempo; 
+2. Contratar mais administrativos para o contacto com os pacientes; 
+3. Alocar mais administrativos de outros serviços à gestão de contactos pré-operatórios do serviço de cirurgia.
+
+<br>
+
+## **Situação de Melhoria (Cenário `Extra 1)`) | 1 Réplica**
+
+```{r}
+# ---------------------------- Cenário Extra 1 ---------------------------------
+# Trajetória para escolher o tipo de contacto com base nas probabilidades, considerando apenas a prioridade das chamadas
+set.seed(2023) 
+
+# Definir o agendamento dos administrativos
+administrativos_schedule_extra1 <- schedule(timetable = c(8*60, 9*60, 9.5*60, 12*60, 15.5*60, 18*60), 
+                                     # Colocámos mais administrativos nas manhãs para tentar agilizar os contactos neste
+                                     # período e resolver as mensagens que ficavam por responder do dia anterior.
+                                     values =  c(3, 2, 4, 2, 2, 0), 
+                                     period = 24*60)
+
+# Criar um ambiente de simulação, replicando o sistema na Situação de Melhoria Extra 1 (SM_E1), apenas 1 vez
+gestao_contactos_SM_50_E1 <-  
+  lapply(1:50, function(i){
+    gestao_contactos_SM_E1 <- simmer(paste("Gestao dos Contactos | Melhoria Extra 1 )", i)) %>% 
+    add_resource("administrativo", administrativos_schedule_extra1, preemptive = TRUE)
+  
+    # Período das 8h às 10h
+    for(jM in 1:5) gestao_contactos_SM_E1 %>%
+      add_generator(paste("Paciente_M",jM), trajectory = tipo_contacto_prioritario_a, 
+                  from_to(start_time = ((jM-1)*24*60)+8*60,
+                          stop_time = ((jM-1)*24*60)+10*60,
+                          dist = function() {c(0, rexp(120, rate = 60/60), -1)},
+                          ),
+                  mon = 2)
+  
+    # Período das 10h às 16h
+    for(jT in 1:5) gestao_contactos_SM_E1 %>%
+      add_generator(paste("Paciente_T",jT), trajectory = tipo_contacto_prioritario_a,
+                  from_to(start_time = ((jT-1)*24*60)+10*60,
+                          stop_time = ((jT-1)*24*60)+16*60,
+                          dist = function() {c(0, rexp(240, rate = 40/60), -1)},
+                          ),
+                  mon = 2)
+  
+    # Período das 16h às 18h
+    for(jN in 1:5) gestao_contactos_SM_E1 %>%
+      add_generator(paste("Paciente_N",jN), trajectory = tipo_contacto_prioritario_a,
+                  from_to(start_time = ((jN-1)*24*60)+16*60,
+                          stop_time = ((jN-1)*24*60)+18*60,
+                          dist = function() {c(0, rexp(40, rate = 20/60), -1)},
+                          ),
+                  mon = 2)
+  
+  gestao_contactos_SM_E1 %>% run(until = 5*24*60) %>% invisible
+})
+```
+
+
+
+```{r}
+# Métricas para a análise da eficiência (Exercício 2 | Cenário Extra 1) )
+df <- as.data.frame(metricas_func(gestao_contactos_SM_50_E1))
+ftable_5 <- flextable(df)
+
+ftable_5 <- bg(ftable_5, bg = "#002060", part = "header")
+ftable_5 <- color(ftable_5, color = "white", part = "header")
+ftable_5 <- bold(ftable_5, bold = TRUE, part="header")
+ftable_5 <- autofit(ftable_5)
+ftable_5 %>% 
+   bold(part = "body", i= 1, j = 1) %>%
+   hline(i = 3, part = "body", border = fp_border(color = "#002060", style = "dashed", width = 1)) %>% 
+   bold(part = "body", i= 4, j = 1) %>%
+   hline(i = 6, part = "body", border = fp_border(color = "#002060", style = "dashed", width = 1)) %>% 
+   bold(part = "body", i= 7, j = 1) %>%
+   hline(i = 9, part = "body", border = fp_border(color = "#002060", style = "dashed", width = 1)) %>% 
+   bold(part = "body", i= 13, j = 1:3) %>%
+   hline(i = 12, part = "body", border = fp_border(color = "#002060", style = "solid", width = 1))
+```
+
+<center>**Tabela 9 -** Variáveis de análise da eficiência da 7ª Simulação - **Situação de Melhoria - Cenário `Extra 1`** | 1 Réplica. </center>
+
+<br>
+
+```{r, fig.show="hold", message=FALSE, warning=FALSE, out.width="50%"}
+gestao_contactos_SM_50_E1 %>% get_mon_resources() %>% plot(metric = "utilization")
+gestao_contactos_SM_50_E1 %>% get_mon_resources() %>% plot(metric = "usage", steps=T)
+gestao_contactos_SM_50_E1 %>% get_mon_arrivals() %>% plot(metric = "waiting_time")
+gestao_contactos_SM_50_E1 %>% get_mon_arrivals() %>% plot(metric = "activity_time")
+```
+
+
+<center>**Figura 21 e 22 -** Gráficos que representa o quanto os recursos são utilizado (esquerda); quando os recursos (administrativos) estão ocupados, bem como quantas pacientes estão na fila a cada momento (direita) na **Situação de Melhoria -  `Extra 1`** em 1 réplica. </center>
+
+
+<center>**Figura 23 e 24 -** Gráficos que representam quanto tempo os pacientes estão na fila e o tempo do seu atendimento na **Situação de Melhoria - `Extra 1`** em 50 réplicas. </center>
+
+
+<br>
+---
+
+<br><br><br>
+
+
+## **Situação de Melhoria (Cenário `Extra 2)`) | 1 Réplica**
+
+```{r}
+# ----------------------------- Cenário Extra 2 --------------------------------
+# Trajetória para escolher o tipo de contacto com base nas probabilidades, considerando apenas a prioridade das chamadas
+set.seed(2023) 
+
+# Definir o agendamento dos administrativos
+administrativos_schedule_extra2 <- schedule(timetable = c(8*60, 9*60, 9.5*60, 12*60, 15.5*60, 18*60), 
+                                     # Adicionámos 1 pessoa a trabalhar 8h p/dia no contacto pré-operatório
+                                     values =  c(2, 2, 5, 3, 2, 0), 
+                                     period = 24*60)
+
+# Criar um ambiente de simulação, replicando o sistema na Situação de Melhoria Extra 2 (SME_2), apenas 1 vez
+gestao_contactos_SM_50_E2 <-  
+  lapply(1:50, function(i){
+    
+    gestao_contactos_SM_E2 <- simmer(paste("Gestao dos Contactos | Melhoria Extra 2 )", i)) %>% 
+    add_resource("administrativo", administrativos_schedule_extra2, preemptive = TRUE)
+  
+    # Período das 8h às 10h
+    for(jM in 1:5) gestao_contactos_SM_E2 %>%
+      add_generator(paste("Paciente_M",jM), trajectory = tipo_contacto_prioritario_a,
+                  from_to(start_time = ((jM-1)*24*60)+8*60,
+                          stop_time = ((jM-1)*24*60)+10*60,
+                          dist = function() {c(0, rexp(120, rate = 60/60), -1)},
+                          ),
+                  mon = 2)
+  
+    # Período das 10h às 16h
+    for(jT in 1:5) gestao_contactos_SM_E2 %>%
+      add_generator(paste("Paciente_T",jT), trajectory = tipo_contacto_prioritario_a,
+                  from_to(start_time = ((jT-1)*24*60)+10*60,
+                          stop_time = ((jT-1)*24*60)+16*60,
+                          dist = function() {c(0, rexp(240, rate = 40/60), -1)},
+                          ),
+                  mon = 2)
+  
+    # Período das 16h às 18h
+    for(jN in 1:5) gestao_contactos_SM_E2 %>%
+      add_generator(paste("Paciente_N",jN), trajectory = tipo_contacto_prioritario_a,
+                  from_to(start_time = ((jN-1)*24*60)+16*60,
+                          stop_time = ((jN-1)*24*60)+18*60,
+                          dist = function() {c(0, rexp(40, rate = 20/60), -1)},
+                          ),
+                  mon = 2)
+    
+    gestao_contactos_SM_E2 %>% run(until = 5*24*60) %>% invisible
+})  
+```
+
+
+
+```{r}
+# Métricas para a análise da eficiência (Exercício 2 | Cenário Extra 2) )
+df <- as.data.frame(metricas_func(gestao_contactos_SM_50_E2))
+ftable_5 <- flextable(df)
+
+ftable_5 <- bg(ftable_5, bg = "#002060", part = "header")
+ftable_5 <- color(ftable_5, color = "white", part = "header")
+ftable_5 <- bold(ftable_5, bold = TRUE, part="header")
+ftable_5 <- autofit(ftable_5)
+ftable_5 %>% 
+   bold(part = "body", i= 1, j = 1) %>%
+   hline(i = 3, part = "body", border = fp_border(color = "#002060", style = "dashed", width = 1)) %>% 
+   bold(part = "body", i= 4, j = 1) %>%
+   hline(i = 6, part = "body", border = fp_border(color = "#002060", style = "dashed", width = 1)) %>% 
+   bold(part = "body", i= 7, j = 1) %>%
+   hline(i = 9, part = "body", border = fp_border(color = "#002060", style = "dashed", width = 1)) %>% 
+   bold(part = "body", i= 13, j = 1:3) %>%
+   hline(i = 12, part = "body", border = fp_border(color = "#002060", style = "solid", width = 1))
+```
+
+<center>**Tabela 10 -** Variáveis de análise da eficiência da 8ª Simulação - **Situação de Melhoria - Cenário `Extra 2`** | 1 Réplica. </center>
+
+<br>
+
+```{r, fig.show="hold", message=FALSE, warning=FALSE, out.width="50%"}
+gestao_contactos_SM_50_E2 %>% get_mon_resources() %>% plot(metric = "utilization")
+gestao_contactos_SM_50_E2 %>% get_mon_resources() %>% plot(metric = "usage", steps=T)
+gestao_contactos_SM_50_E2 %>% get_mon_arrivals() %>% plot(metric = "waiting_time")
+gestao_contactos_SM_50_E2 %>% get_mon_arrivals() %>% plot(metric = "activity_time")
+```
+
+<center>**Figura 25 e 26 -** Gráficos que representa o quanto os recursos são utilizado (esquerda); quando os recursos (administrativos) estão ocupados, bem como quantas pacientes estão na fila a cada momento (direita) na **Situação de Melhoria -  `Extra 2`** em 1 réplica. </center>
+
+<center>**Figura 27 e 28 -** Gráficos que representam quanto tempo os pacientes estão na fila e o tempo do seu atendimento na **Situação de Melhoria - `Extra 2)`** em 50 réplicas. </center>
+
+<br>
+
+---
+
+<br><br>
+
+# Resumo da Ánalise das Eficiências nas Simulações
+
+```{r}
+# Tabela Geral das Métricas para a análise da eficiência nas várias situações
+df <- as.data.frame(c(metricas_func(gestao_contactos_SA_50), metricas_func(gestao_contactos_SM_50a)[2:3],
+                      metricas_func(gestao_contactos_SM_50b)[2:3], metricas_func(gestao_contactos_SM_50_E1)[2:3],
+                      metricas_func(gestao_contactos_SM_50_E2)[2:3]))
+ftable_2 <- flextable(df)
+
+ftable_2 <- bg(ftable_2, bg = "#002060", part = "header") %>% color(color = "white", part = "header")
+ftable_2 <- set_header_labels(ftable_2, Métrica = "Métrica", Valor = "Valor", X. = "%", 
+                        Valor.1 = "Valor",  X..1 = "%", Valor.2 = "Valor", X..2 = "%",
+                        Valor.3 = "Valor", X..3 = "%", Valor.4 = "Valor", X..4 = "%") 
+ftable_2 <- bold(ftable_2, bold = TRUE, part="header")
+ftable_2 <- autofit(ftable_2)
+
+ftable_2 <- ftable_2 %>%
+    add_header_row(values = c("","SA", "SM a)", "SM b)", "SM | Extra 1", "SM | Extra 2"), colwidths = c(1, 2, 2, 2, 2, 2)) %>% 
+    bg(i = 1, j = 1:11, bg = "white", part = "header") %>% 
+    style(i = 1, pr_t = fp_text_default(bold = T, color = "#002060"), part = "header") %>% 
+    merge_at(i = 1, j = 2:3) %>% align(i = 1, j = 2:3, align = "center", part = "header") %>% 
+    merge_at(i = 1, j = 4:5) %>% align(i = 1, j = 4:5, align = "center", part = "header") %>% 
+    merge_at(i = 1, j = 6:7) %>% align(i = 1, j = 6:7, align = "center", part = "header") %>% 
+    merge_at(i = 1, j = 8:9) %>% align(i = 1, j = 8:9, align = "center", part = "header") %>% 
+    merge_at(i = 1, j = 10:11) %>% align(i = 1, j = 10:11, align = "center", part = "header")
+    
+ftable_2 %>%
+    border_outer(part = "all", border = fp_border(color = "white", width = 1)) %>% 
+    hline(i = 1, part = "header", border = fp_border(color = "white", style = "solid", width = 1)) %>% 
+    hline(i = 2, part = "header", border = fp_border(color = "white", style = "solid", width = 1)) %>% 
+    bold(part = "body", i= 1, j = 1) %>%
+    hline(i = 3, part = "body", border = fp_border(color = "#002060", style = "dashed", width = 1)) %>% 
+    bold(part = "body", i= 4, j = 1) %>%
+    hline(i = 6, part = "body", border = fp_border(color = "#002060", style = "dashed", width = 1)) %>% 
+    bold(part = "body", i= 7, j = 1) %>%
+    hline(i = 9, part = "body", border = fp_border(color = "#002060", style = "dashed", width = 1)) %>% 
+    bold(part = "body", i= 13, j = 1:11) %>% 
+    hline(i = 12, part = "body", border = fp_border(color = "#002060", style = "solid", width = 1)) %>% 
+    vline(j = 1, part = "all", border = fp_border(color = "white", style = "solid", width = 10)) %>% 
+    vline(j = 3, part = "all", border = fp_border(color = "white", style = "solid", width = 10)) %>% 
+    vline(j = 5, part = "all", border = fp_border(color = "white", style = "solid", width = 10)) %>% 
+    vline(j = 7, part = "all", border = fp_border(color = "white", style = "solid", width = 10)) %>% 
+    vline(j = 9, part = "all", border = fp_border(color = "white", style = "solid", width = 10)) %>% 
+    hline(i = 18, part = "body", border = fp_border(color = "#f1f1f1",style = "solid", width = 10))
+```
+
+<center>**Tabela 11 -** Síntese das Variáveis de Análise da Eficiência de todas as Simulações com 50 Réplica. </center>
+
+<br><br><br>
